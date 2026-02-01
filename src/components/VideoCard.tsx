@@ -280,8 +280,8 @@ export default function VideoCard({
           alt={actualTitle}
           fill
           className='object-cover'
-  
           onLoadingComplete={() => setIsLoading(true)}
+          onError={() => setIsLoading(true)}
         />
 
         {/* 悬浮遮罩 */}
