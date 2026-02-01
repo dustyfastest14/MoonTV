@@ -3,7 +3,31 @@
 import Hls from 'hls.js';
 
 /**
- * 获取图片代理 URL 设置
+ * 默认图片代理前缀（写死在代码里）
+ * 注意：这里是“前缀”，必须以 ?url= 结尾
+ */
+const DEFAULT_IMG_PROXY_PREFIX = 'https://dbapi.ddmm.de5.net/?url=';
+
+/**
+ * 规范化代理前缀：统一成 “.../?url=” 形式
+ * - 已包含 ?url=：强制截断为前缀（防止用户误填完整url）
+ * - 缺少 ?url=：自动补齐
+ */
+function normalizeProxyPrefix(p: string): string | null {
+  const v = (p ?? '').trim();
+  if (!v) return null;
+
+  // 已包含 ?url=：强制只保留前缀部分
+  if (v.includes('?url=')) {
+    return v.split('?url=')[0] + '?url=';
+  }
+  if (v.endsWith('?url')) return `${v}=`;
+  if (v.endsWith('?')) return `${v}url=`;
+  return v.endsWith('/') ? `${v}?url=` : `${v}/?url=`;
+}
+
+/**
+ * 获取图片代理 URL 设置（返回“前缀”，形如 https://xxx/?url=）
  */
 export function getImageProxyUrl(): string | null {
   if (typeof window === 'undefined') return null;
@@ -11,28 +35,37 @@ export function getImageProxyUrl(): string | null {
   // 本地未开启图片代理，则不使用代理
   const enableImageProxy = localStorage.getItem('enableImageProxy');
   if (enableImageProxy !== null) {
-    if (!JSON.parse(enableImageProxy) as boolean) {
+    if (!(JSON.parse(enableImageProxy) as boolean)) {
       return null;
     }
   }
 
+  // 1) 用户本地设置优先
   const localImageProxy = localStorage.getItem('imageProxyUrl');
-  if (localImageProxy != null) {
-    return localImageProxy.trim() ? localImageProxy.trim() : null;
-  }
+  const local = localImageProxy ? normalizeProxyPrefix(localImageProxy) : null;
+  if (local) return local;
 
-  // 如果未设置，则使用全局对象
+  // 2) 运行时全局配置（如果你有注入）
   const serverImageProxy = (window as any).RUNTIME_CONFIG?.IMAGE_PROXY;
-  return serverImageProxy && serverImageProxy.trim()
-    ? serverImageProxy.trim()
-    : null;
+  const server = serverImageProxy ? normalizeProxyPrefix(serverImageProxy) : null;
+  if (server) return server;
+
+  // 3) 默认值（写死在代码里）
+  return DEFAULT_IMG_PROXY_PREFIX;
 }
 
 /**
- * 处理图片 URL，如果设置了图片代理则使用代理
+ * 处理图片 URL：仅对豆瓣图床走代理（避免所有图片都绕路/被滥用）
  */
 export function processImageUrl(originalUrl: string): string {
   if (!originalUrl) return originalUrl;
+
+  // 只代理豆瓣图床
+  const isDoubanImg =
+    /^https?:\/\/img\d+\.doubanio\.com\//i.test(originalUrl) ||
+    /doubanio\.com\/view\/photo/i.test(originalUrl);
+
+  if (!isDoubanImg) return originalUrl;
 
   const proxyUrl = getImageProxyUrl();
   if (!proxyUrl) return originalUrl;
